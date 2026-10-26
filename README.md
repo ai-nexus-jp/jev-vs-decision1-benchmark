@@ -123,6 +123,15 @@ python3 evaluate_models.py \
 - `--data-file`: テストデータJSONのパス（デフォルト: `data/test_data.json`）
 - `--output`: 出力先CSVファイルのパス（デフォルト: `results.csv`）
 - `--dry-run`: モックデータを用いた検証モード
+- `--summary [CSV_PATH]`: 実行結果CSVから正解率・速度・激論ケースのMarkdownサマリー表を集計出力
+
+### 集計サマリーレポートの生成
+
+実行完了時に自動でサマリーレポートが表示されますが、過去の出力CSVや公式検証データを再集計したい場合は以下でいつでも確認できます。
+
+```bash
+python3 evaluate_models.py --summary data/benchmark_results.csv
+```
 
 ---
 
