@@ -77,12 +77,16 @@ cp .env.example .env
 `.env` の内容を編集します：
 
 ```env
-# TypeSafe Jev API 設定 (Vercel AI Gateway または Jev エンドポイント)
-JEV_API_URL=https://api.typesafe.ai/v1/decision
+# TypeSafe Jev API 設定
+# ※ 'https://api.typesafe.ai' または 'https://api.typesafe.ai/v1/systemone' のどちらでも自動正規化されます
+JEV_API_URL=https://api.typesafe.ai/v1/systemone
 JEV_API_KEY=your_actual_jev_api_key
 
-# Microsoft-Decision-1 API 設定 (Azure AI Foundry エンドポイント)
-DECISION1_API_URL=https://<your-resource-name>.services.ai.azure.com/models/decision-1
+# Microsoft-Decision-1 API 設定 (Microsoft Foundry)
+# ※ 「詳細」タブの完全URL (末尾 /v1/systemone) でも、
+#   「モデルを呼び出す」コード例の base_url (末尾 /providers/microsoft) でも、
+#   どちらを貼り付けてもスクリプト側で自動的に正規化されます。
+DECISION1_API_URL=https://<your-resource-name>.services.ai.azure.com/providers/microsoft/v1/systemone
 DECISION1_API_KEY=your_actual_decision1_api_key
 
 # タイムアウト時間（秒）
@@ -95,9 +99,22 @@ REQUEST_TIMEOUT_SECONDS=15
 
 ## 🧪 実行方法
 
-### 通常実行（実APIリクエスト）
+### 1. 接続確認テスト（事前診断）
 
-API キーを設定後、以下のコマンドでベンチマークを実行します。
+本番評価（80件）を回す前に、両モデルのAPI疎通・認証キーが正常に通るかを1問のテストリクエストで事前確認できます。
+
+```bash
+# 両モデルの接続テストを一括実行
+python3 test_connection.py
+
+# 片方のみテストしたい場合
+python3 test_connection.py --model jev
+python3 test_connection.py --model decision1
+```
+
+### 2. 通常実行（実APIによる本番評価）
+
+接続確認が完了したら、以下のコマンドで80件のベンチマークを実行します。
 
 ```bash
 python3 evaluate_models.py

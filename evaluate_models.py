@@ -51,11 +51,28 @@ TASK_OPTIONS = {
 }
 DECISION_TYPE = "choice"
 
-# 環境変数
-JEV_API_URL = os.getenv("JEV_API_URL", "").strip()
+def normalize_endpoint_url(url: str, default_path: str = "/v1/systemone") -> str:
+    """
+    エンドポイントURLを正規化する。
+    - 詳細タブの完全URL (末尾 /v1/systemone)
+    - SDKサンプルコードの base_url (末尾 /providers/microsoft 等)
+    - 旧来の /v1/decision
+    のいずれが設定されていても、自動的に正しい REST API エンドポイントに統一する。
+    """
+    clean_url = url.strip().rstrip("/")
+    if not clean_url:
+        return ""
+    if clean_url.endswith("/v1/decision"):
+        return clean_url.replace("/v1/decision", default_path)
+    if clean_url.endswith(default_path):
+        return clean_url
+    return f"{clean_url}{default_path}"
+
+# 環境変数（自動正規化を適用）
+JEV_API_URL = normalize_endpoint_url(os.getenv("JEV_API_URL", "https://api.typesafe.ai/v1/systemone"))
 JEV_API_KEY = os.getenv("JEV_API_KEY", "").strip()
 
-DECISION1_API_URL = os.getenv("DECISION1_API_URL", "").strip()
+DECISION1_API_URL = normalize_endpoint_url(os.getenv("DECISION1_API_URL", ""))
 DECISION1_API_KEY = os.getenv("DECISION1_API_KEY", "").strip()
 
 REQUEST_TIMEOUT_SECONDS = float(os.getenv("REQUEST_TIMEOUT_SECONDS", "15"))
@@ -75,10 +92,17 @@ def parse_confidence(val: Any) -> Optional[float]:
 def extract_prediction_metrics(data: Any) -> Tuple[str, Optional[float], Optional[str], Optional[float], str]:
     """
     APIレスポンスから以下の指標を抽出して返却する。
+    System One 規格 (answers -> {question_id} -> {value/choice, probabilities, confidence}) に完全対応。
     戻り値: (top_result, top_confidence, second_result, margin, probabilities_summary)
     """
     if not isinstance(data, dict):
         return str(data), None, None, None, ""
+
+    # System One 規格レスポンスの展開 (answers -> intent)
+    if "answers" in data and isinstance(data["answers"], dict) and data["answers"]:
+        target_answer = data["answers"].get("intent") or next(iter(data["answers"].values()))
+        if isinstance(target_answer, dict):
+            data = {**data, **target_answer}
 
     top_result: Optional[str] = None
     top_conf: Optional[float] = None
@@ -117,12 +141,11 @@ def extract_prediction_metrics(data: Any) -> Tuple[str, Optional[float], Optiona
             margin = round(top_conf - sec_conf, 3)
         probs_summary = " | ".join(f"{k}:{v:.3f}" for k, v in sorted_items)
 
-    # 3. 確率辞書がない場合のフォールバック（単一フィールドからの抽出）
-    if not top_result:
-        for key in ["result", "prediction", "choice", "label", "output", "category", "decision"]:
-            if key in data and data[key]:
-                top_result = str(data[key])
-                break
+    # 3. 結果ラベルの特定 (value, choice, result, prediction, label など)
+    for key in ["value", "choice", "result", "prediction", "label", "output", "category", "decision"]:
+        if key in data and data[key]:
+            top_result = str(data[key])
+            break
 
     if not top_result and "choices" in data and isinstance(data["choices"], list) and len(data["choices"]) > 0:
         first_choice = data["choices"][0]
@@ -138,6 +161,12 @@ def extract_prediction_metrics(data: Any) -> Tuple[str, Optional[float], Optiona
                 top_conf = parse_confidence(data[conf_key])
                 if top_conf is not None:
                     break
+
+    if not probs_summary and top_result:
+        conf_repr = f":{top_conf:.3f}" if top_conf is not None else ""
+        probs_summary = f"{top_result}{conf_repr}"
+
+    return (top_result or "unknown", top_conf, second_result, margin, probs_summary)
 
     if not probs_summary and top_result:
         conf_repr = f":{top_conf:.3f}" if top_conf is not None else ""
@@ -282,13 +311,21 @@ def evaluate_jev(input_text: str, category: str = "", expected: str = "", dry_ru
     }
 
     payload = {
+        # System One 規格 (Microsoft Foundry / TypeSafe Jev 公式形式)
+        "model": os.getenv("JEV_MODEL_NAME", "jev-latest").strip(),
+        "state": input_text,
+        "questions": {
+            "intent": {
+                "type": "choice",
+                "instructions": TASK_QUESTION,
+                "criteria": TASK_OPTIONS,
+            }
+        },
+        # 汎用/旧来フォールバック用
         "type": DECISION_TYPE,
         "question": TASK_QUESTION,
         "input": input_text,
-        "options": [
-            {"id": key, "description": desc}
-            for key, desc in TASK_OPTIONS.items()
-        ]
+        "options": TASK_OPTIONS,
     }
 
     data, latency_ms, err = call_api(JEV_API_URL, headers, payload, REQUEST_TIMEOUT_SECONDS)
@@ -340,6 +377,17 @@ def evaluate_decision1(input_text: str, category: str = "", expected: str = "", 
     }
 
     payload = {
+        # System One 規格 (Microsoft Foundry / Decision-1 公式形式)
+        "model": os.getenv("DECISION1_MODEL_NAME", "decision-1").strip(),
+        "state": input_text,
+        "questions": {
+            "intent": {
+                "type": "choice",
+                "instructions": TASK_QUESTION,
+                "criteria": TASK_OPTIONS,
+            }
+        },
+        # 汎用/旧来フォールバック用
         "type": DECISION_TYPE,
         "question": TASK_QUESTION,
         "input_text": input_text,
