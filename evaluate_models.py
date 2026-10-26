@@ -370,6 +370,101 @@ def evaluate_decision1(input_text: str, category: str = "", expected: str = "", 
     }
 
 
+def generate_summary(csv_file: str) -> None:
+    """
+    results.csv または benchmark_results.csv を読み込み、
+    カテゴリ別の正解率・平均レイテンシ・確信度・モデル間一致率を集計して表示する。
+    """
+    if not os.path.exists(csv_file):
+        print(f"Error: CSV file not found for summary: {csv_file}")
+        return
+
+    with open(csv_file, "r", encoding="utf-8-sig") as f:
+        reader = list(csv.DictReader(f))
+
+    if not reader:
+        print(f"Warning: CSV file is empty: {csv_file}")
+        return
+
+    print("\n" + "=" * 78)
+    print("  📊 BENCHMARK SUMMARY REPORT (Jev vs Microsoft-Decision-1)")
+    print("=" * 78)
+    print(f"Source CSV : {csv_file}")
+    print(f"Total Cases: {len(reader)}\n")
+
+    # カテゴリ別集計用
+    categories: Dict[str, List[Dict[str, Any]]] = {}
+    for r in reader:
+        cat = r.get("Category", "Unknown")
+        categories.setdefault(cat, []).append(r)
+
+    # 1. カテゴリ別 正解率・速度・確信度 サマリーテーブル (Markdown形式)
+    print("### 1. カテゴリ別 総合パフォーマンス比較")
+    print("| カテゴリ | 件数 | Jev正解率 | Dec1正解率 | Jev平均速度 | Dec1平均速度 | Jev平均確信度 | Dec1平均確信度 | 一致率 |")
+    print("|---|---|---|---|---|---|---|---|---|")
+
+    total_jev_correct = 0
+    total_dec_correct = 0
+    total_valid_cases = 0
+    total_agree = 0
+    all_jev_latencies: List[float] = []
+    all_dec_latencies: List[float] = []
+
+    for cat, rows in categories.items():
+        n = len(rows)
+        jev_correct = sum(1 for r in rows if r.get("Jev_Is_Expected") == "TRUE")
+        dec_correct = sum(1 for r in rows if r.get("Decision1_Is_Expected") == "TRUE")
+        agree_cnt = sum(1 for r in rows if r.get("Models_Agree") == "TRUE")
+
+        jev_lats = [float(r["Jev_Latency_ms"]) for r in rows if r.get("Jev_Latency_ms") and r["Jev_Latency_ms"] != ""]
+        dec_lats = [float(r["Decision1_Latency_ms"]) for r in rows if r.get("Decision1_Latency_ms") and r["Decision1_Latency_ms"] != ""]
+        jev_confs = [float(r["Jev_Confidence"]) for r in rows if r.get("Jev_Confidence") and r["Jev_Confidence"] != ""]
+        dec_confs = [float(r["Decision1_Confidence"]) for r in rows if r.get("Decision1_Confidence") and r["Decision1_Confidence"] != ""]
+
+        avg_j_lat = f"{sum(jev_lats)/len(jev_lats):.1f}ms" if jev_lats else "N/A"
+        avg_d_lat = f"{sum(dec_lats)/len(dec_lats):.1f}ms" if dec_lats else "N/A"
+        avg_j_conf = f"{sum(jev_confs)/len(jev_confs):.3f}" if jev_confs else "N/A"
+        avg_d_conf = f"{sum(dec_confs)/len(dec_confs):.3f}" if dec_confs else "N/A"
+
+        j_acc = f"{(jev_correct / n) * 100:.1f}% ({jev_correct}/{n})"
+        d_acc = f"{(dec_correct / n) * 100:.1f}% ({dec_correct}/{n})"
+        agree_pct = f"{(agree_cnt / n) * 100:.1f}%"
+
+        print(f"| {cat} | {n} | {j_acc} | {d_acc} | {avg_j_lat} | {avg_d_lat} | {avg_j_conf} | {avg_d_conf} | {agree_pct} |")
+
+        total_jev_correct += jev_correct
+        total_dec_correct += dec_correct
+        total_valid_cases += n
+        total_agree += agree_cnt
+        all_jev_latencies.extend(jev_lats)
+        all_dec_latencies.extend(dec_lats)
+
+    overall_j_acc = f"{(total_jev_correct / total_valid_cases) * 100:.1f}%" if total_valid_cases else "N/A"
+    overall_d_acc = f"{(total_dec_correct / total_valid_cases) * 100:.1f}%" if total_valid_cases else "N/A"
+    overall_j_lat = f"{sum(all_jev_latencies) / len(all_jev_latencies):.1f}ms" if all_jev_latencies else "N/A"
+    overall_d_lat = f"{sum(all_dec_latencies) / len(all_dec_latencies):.1f}ms" if all_dec_latencies else "N/A"
+    overall_agree = f"{(total_agree / total_valid_cases) * 100:.1f}%" if total_valid_cases else "N/A"
+
+    print(f"| **全体平均** | **{total_valid_cases}** | **{overall_j_acc}** | **{overall_d_acc}** | **{overall_j_lat}** | **{overall_d_lat}** | - | - | **{overall_agree}** |")
+    print()
+
+    # 2. 意見が割れた問題（激論ケース）のピックアップ
+    disagree_cases = [r for r in reader if r.get("Models_Agree") == "FALSE"]
+    print(f"### 2. 意見が割れた注目ケース (Models_Agree = FALSE) : 計 {len(disagree_cases)} 件")
+    if disagree_cases:
+        print("| ID | カテゴリ | 期待値 | Jev判定 (確信度) | Decision-1判定 (確信度) | 入力文 |")
+        print("|---|---|---|---|---|---|")
+        for d in disagree_cases:
+            inp = d.get("Input_Text", "")
+            inp_short = (inp[:40] + "...") if len(inp) > 40 else inp
+            j_eval = f"{d.get('Jev_Result', '')} ({d.get('Jev_Confidence', '')})"
+            d_eval = f"{d.get('Decision1_Result', '')} ({d.get('Decision1_Confidence', '')})"
+            print(f"| {d.get('ID')} | {d.get('Category')} | {d.get('Expected')} | {j_eval} | {d_eval} | {inp_short} |")
+    else:
+        print("（両モデルの判定が全件一致、または未評価です）")
+    print("=" * 78 + "\n")
+
+
 def load_test_data(file_path: str) -> list:
     """テストケースJSONファイルを読み込む。"""
     if not os.path.exists(file_path):
@@ -388,7 +483,20 @@ def main():
     parser.add_argument("--data-file", default="data/test_data.json", help="Path to test cases JSON file (default: data/test_data.json)")
     parser.add_argument("--output", default="results.csv", help="Path to output CSV file (default: results.csv)")
     parser.add_argument("--dry-run", action="store_true", help="Run without sending real API requests (for structure and format verification)")
+    parser.add_argument("--summary", nargs="?", const="results.csv", default=None, help="Generate performance summary from a results CSV file")
     args = parser.parse_args()
+
+    # --summary オプション単体実行の場合
+    if args.summary:
+        target_csv = args.summary
+        if not os.path.exists(target_csv):
+            # fallback search
+            for candidate in ["results.csv", "data/benchmark_results.csv"]:
+                if os.path.exists(candidate):
+                    target_csv = candidate
+                    break
+        generate_summary(target_csv)
+        return
 
     print("=================================================================")
     print("  Jev vs Microsoft-Decision-1 Benchmark Runner (Enhanced)")
@@ -495,6 +603,9 @@ def main():
         writer.writerows(results)
 
     print(f"Evaluation complete. Results saved to '{args.output}'.")
+
+    # 実行完了後に自動でサマリーレポートを出力
+    generate_summary(args.output)
 
 
 if __name__ == "__main__":
