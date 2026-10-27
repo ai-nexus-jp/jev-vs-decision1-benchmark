@@ -1,8 +1,8 @@
-# Jev vs Microsoft-Decision-1 Benchmark
+# Jev vs Microsoft-Decision-1 & LLM Benchmark
 
-判断特化型AI（System 1モデル）である **TypeSafe Jev** と **Microsoft-Decision-1** の日本語処理能力および「確信度（Confidence）のキャリブレーション」を比較検証するためのベンチマークスイートです。
+判断特化型AI（System 1モデル: **TypeSafe Jev**, **Microsoft-Decision-1**）と、一般的な生成LLM（System 2モデル: **GPT-5**, **GPT-5-mini**）の日本語問い合わせ分類能力、確信度（Confidence）キャリブレーション、および処理速度（Latency）を比較検証するための統合ベンチマークスイートです。
 
-AI Nexus事業の技術ブランディング記事企画の一環として、同一の日本語問い合わせ分類タスクを用いて両モデルの分類精度、確信度（Probability）、レイテンシ（処理時間）を計測します。
+AI Nexus事業の技術ブランディング記事企画の一環として、同一の日本語問い合わせ分類タスクを用いて4モデルの分類精度、確信度（Probability）、応答時間を**完全に同一の計測定規**で計測します。
 
 ---
 
@@ -10,15 +10,23 @@ AI Nexus事業の技術ブランディング記事企画の一環として、同
 
 ```text
 jev-vs-decision1-benchmark/
+├── evaluate.py             # ★メイン実行スクリプト★（1コマンドで4モデル同時ベンチマーク）
+├── src/                    # コアロジック & モデルアダプタ
+│   ├── config.py           # タスク定義(4分類)、環境変数ローダー、URL正規化
+│   ├── client.py           # ★同一計測定規★（単一の send_post_request で高精度計測）
+│   ├── reporter.py         # CSV出力 & Markdown比較サマリーレポート生成
+│   └── models/             # 各種モデルアダプタ
+│       ├── base.py         # 抽象基底クラス (統一インターフェース)
+│       ├── system_one.py   # System 1型 (Jev, Decision-1: choices配列・確率分布・Margin)
+│       └── chat_completions.py # System 2型 (GPT-5, GPT-5-mini: JSONモード)
+├── tests/
+│   └── test_connections.py # 4モデル疎通確認テスト（1問即時診断）
+├── data/
+│   ├── test_data.json      # 日本語問い合わせテストケース（計80件）
+│   └── benchmark_results.csv # 4モデル横並びの実測データ生ログ
 ├── .env.example            # 環境変数のテンプレート設定ファイル
-├── .gitignore              # 機密情報・中間成果物の除外設定
 ├── requirements.txt        # 必要なPythonライブラリ一覧
-├── test_connection.py      # 事前API疎通テストスクリプト（1問診断）
-├── evaluate_models.py      # 比較検証・評価実行スクリプト（集計サマリー機能付き）
-├── README.md               # 本ドキュメント（実行手順書および検証結果）
-└── data/
-    ├── test_data.json          # 日本語問い合わせテストケース（計80件）
-    └── benchmark_results.csv   # 本番実測データ（全20カラム × 80件の生ログ）
+└── README.md               # 本ドキュメント
 ```
 
 ---
@@ -148,48 +156,57 @@ REQUEST_TIMEOUT_SECONDS=15
 
 ## 🧪 実行方法
 
-### 1. 接続確認テスト（事前診断）
+### 1. 接続確認テスト（4モデル一括事前診断）
 
-本番評価（80件）を回す前に、両モデルのAPI疎通・認証キーが正常に通るかを1問のテストリクエストで事前確認できます。
-
-```bash
-# 両モデルの接続テストを一括実行
-python3 test_connection.py
-
-# 片方のみテストしたい場合
-python3 test_connection.py --model jev
-python3 test_connection.py --model decision1
-```
-
-### 2. 通常実行（実APIによる本番評価）
-
-接続確認が完了したら、以下のコマンドで80件のベンチマークを実行します。
+本番評価（80件）を回す前に、.env に設定された全モデル（Jev, Decision-1, GPT-5, GPT-5-mini）のAPI疎通・認証キー・応答速度が正常に通るかを1問のリクエストで一括確認できます。
 
 ```bash
-python3 evaluate_models.py
+# 設定されている全モデルの接続テストを一括実行
+python3 tests/test_connections.py
+
+# 特定のモデルのみテストしたい場合
+python3 tests/test_connections.py --models jev,decision1
+python3 tests/test_connections.py --models gpt5,gpt5_mini
 ```
 
-### ドライラン実行（モック動作確認）
+### 2. 統合ベンチマーク実行（本番評価）
+
+接続確認が完了したら、以下のコマンドで全80問のベンチマークを一括実行します。
+
+```bash
+# 有効な全モデル（最大4モデル）を同一ループで同時実行
+python3 evaluate.py
+
+# 特定のモデルグループのみ実行したい場合
+python3 evaluate.py --models jev,decision1
+python3 evaluate.py --models gpt5,gpt5_mini
+```
+
+### 3. ドライラン実行（モック動作確認）
 
 実APIにリクエストを送らず、テストデータの読み込みやCSV出力形式の整合性を確認したい場合に利用します。
 
 ```bash
-python3 evaluate_models.py --dry-run
+python3 evaluate.py --dry-run
 ```
 
 ### コマンドライン引数オプション
 
 ```bash
-python3 evaluate_models.py \
+python3 evaluate.py \
   --data-file data/test_data.json \
-  --output custom_results.csv \
+  --output data/benchmark_results.csv \
+  --models all \
   --dry-run
 ```
 
 - `--data-file`: テストデータJSONのパス（デフォルト: `data/test_data.json`）
-- `--output`: 出力先CSVファイルのパス（デフォルト: `results.csv`）
+- `--output`: 出力先CSVファイルのパス（デフォルト: `data/benchmark_results.csv`）
+- `--models`: 実行対象モデルのID（カンマ区切りまたは `all`）
 - `--dry-run`: モックデータを用いた検証モード
-- `--summary [CSV_PATH]`: 実行結果CSVから正解率・速度・激論ケースのMarkdownサマリー表を集計出力
+- `--timeout`: リクエストタイムアウト秒数（デフォルト: `15.0`）
+
+*(※ 従来の `python3 evaluate_models.py` や `python3 test_connection.py` も後方互換性ラッパーとしてそのまま使用可能です)*
 
 ### 集計サマリーレポートの生成
 
