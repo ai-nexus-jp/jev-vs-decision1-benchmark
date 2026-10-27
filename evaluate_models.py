@@ -321,11 +321,6 @@ def evaluate_jev(input_text: str, category: str = "", expected: str = "", dry_ru
                 "criteria": TASK_OPTIONS,
             }
         },
-        # 汎用/旧来フォールバック用
-        "type": DECISION_TYPE,
-        "question": TASK_QUESTION,
-        "input": input_text,
-        "options": TASK_OPTIONS,
     }
 
     data, latency_ms, err = call_api(JEV_API_URL, headers, payload, REQUEST_TIMEOUT_SECONDS)
@@ -387,11 +382,6 @@ def evaluate_decision1(input_text: str, category: str = "", expected: str = "", 
                 "criteria": TASK_OPTIONS,
             }
         },
-        # 汎用/旧来フォールバック用
-        "type": DECISION_TYPE,
-        "question": TASK_QUESTION,
-        "input_text": input_text,
-        "options": TASK_OPTIONS,
     }
 
     data, latency_ms, err = call_api(DECISION1_API_URL, headers, payload, REQUEST_TIMEOUT_SECONDS)
