@@ -63,3 +63,4 @@ def send_post_request(
         except json.JSONDecodeError:
             latency_ms = round((time.perf_counter() - start_time) * 1000, 2)
             return None, latency_ms, "INVALID_JSON_RESPONSE"
+

@@ -50,3 +50,4 @@ class BaseModelAdapter(ABC):
     ) -> PredictionResult:
         """ドライラン（モック）用の検証データを返却する。"""
         pass
+

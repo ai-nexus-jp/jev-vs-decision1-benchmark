@@ -77,3 +77,4 @@ LLM_SYSTEM_PROMPT = f"""あなたはユーザー問い合わせの主目的を�
 """
 
 REQUEST_TIMEOUT_SECONDS = float(os.getenv("REQUEST_TIMEOUT_SECONDS", "15"))
+

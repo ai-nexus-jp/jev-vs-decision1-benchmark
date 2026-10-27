@@ -142,3 +142,4 @@ class ChatCompletionsAdapter(BaseModelAdapter):
             is_correct=True,
             error=None,
         )
+

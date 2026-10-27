@@ -4,9 +4,23 @@
 
 import csv
 import os
+import re
 from typing import Any, Dict, List
 
 from src.models.base import BaseModelAdapter, PredictionResult
+
+def sanitize_error_message(err_msg: Optional[str]) -> str:
+    """エラーメッセージから個別URLやホスト名、リソース名などの機密情報を除去する。"""
+    if not err_msg:
+        return ""
+    # URLやホスト名を一般的な表記に置換
+    cleaned = re.sub(r'https?://[^\s\'"/]+(?::\d+)?', 'https://<endpoint-host>', err_msg)
+    cleaned = re.sub(r"host='[^']+'", "host='<endpoint-host>'", cleaned)
+    cleaned = re.sub(r'host="[^"]+"', 'host="<endpoint-host>"', cleaned)
+    cleaned = re.sub(r'\b[a-zA-Z0-9_-]+\.services\.ai\.azure\.com\b', '<azure-endpoint>', cleaned)
+    cleaned = re.sub(r'\b[a-zA-Z0-9_-]+\.openai\.azure\.com\b', '<azure-endpoint>', cleaned)
+    cleaned = re.sub(r'\b[a-zA-Z0-9_-]+\.models\.ai\.azure\.com\b', '<azure-endpoint>', cleaned)
+    return cleaned
 
 def save_benchmark_csv(
     questions: List[Dict[str, Any]],
@@ -64,7 +78,7 @@ def save_benchmark_csv(
                     row[f"{mid}_probabilities"] = res.probabilities_summary or ""
                     row[f"{mid}_latency_ms"] = f"{res.latency_ms:.1f}"
                     row[f"{mid}_is_correct"] = str(res.is_correct)
-                    row[f"{mid}_error"] = res.error or ""
+                    row[f"{mid}_error"] = sanitize_error_message(res.error)
                 else:
                     row[f"{mid}_prediction"] = "N/A"
                     row[f"{mid}_confidence"] = ""
@@ -166,3 +180,4 @@ def print_comparison_summary(
         print(row_str)
 
     print("\n" + "=" * 80)
+
